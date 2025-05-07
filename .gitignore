@@ -1,0 +1,26 @@
+# Laravel
+/vendor
+/node_modules
+/public/storage
+/storage/*.key
+.env
+.env.*.backup
+.phpunit.result.cache
+Homestead.yaml
+Homestead.json
+/.idea
+/.vscode
+/.phpunit.cache
+.DS_Store
+
+# Laravel Sail
+docker-compose.override.yml
+
+# DDEV
+/.ddev/sequelpro/*
+/.ddev/import-db/*
+/.ddev/import-db.d/*
+/.ddev/import-files.d/*
+/.ddev/.global_commands/*
+/.ddev/.downloads/*
+/.ddev/db_snapshots/*
