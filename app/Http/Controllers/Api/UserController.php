@@ -15,10 +15,33 @@ use Intervention\Image\Encoders\JpegEncoder;
 
 class UserController extends Controller
 {
-    // Display of user.
-    public function index()
+    // Get of users.
+        public function index(Request $request)
     {
-        return response()->json(User::paginate(6));
+        $request->validate([
+            'page' => 'integer|min:1',
+            'count' => 'integer|min:1|max:100',
+        ]);
+
+        $count = $request->input('count', 5);
+        $page = $request->input('page', 1);
+
+        $users = User::orderBy('id')->paginate($count, ['*'], 'page', $page);
+
+        $response = [
+            'success' => true,
+            'page' => $users->currentPage(),
+            'total_pages' => $users->lastPage(),
+            'total_users' => $users->total(),
+            'count' => $users->perPage(),
+            'links' => [
+                'next_url' => $users->nextPageUrl(),
+                'prev_url' => $users->previousPageUrl(),
+            ],
+            'users' => $users->items(),
+        ];
+
+        return response()->json($response);
     }
 
     // Create user.
