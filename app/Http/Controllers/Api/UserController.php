@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Http;
 use Intervention\Image\Laravel\Facades\Image;
 use Intervention\Image\Encoders\JpegEncoder;
+use Illuminate\Support\Facades\Cache;
 
 class UserController extends Controller
 {
@@ -65,6 +66,15 @@ class UserController extends Controller
     // Create user.
     public function store(Request $request)
     {
+        $token = $request->bearerToken();
+
+        if (!$token || !Cache::pull('register_token_' . $token)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid or expired token',
+            ], 401);
+        }
+
         $validator = Validator::make($request->all(), [
             'name'     => 'required|string|max:255',
             'surname'  => 'required|string|max:255',
@@ -133,6 +143,15 @@ class UserController extends Controller
     // Update user.
     public function update(Request $request, $id)
     {
+        $token = $request->bearerToken();
+
+        if (!$token || !Cache::pull('register_token_' . $token)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid or expired token',
+            ], 401);
+        }
+
         $user = User::find($id);
         if (!$user) {
             return response()->json(['error' => 'User not found'], 404);
