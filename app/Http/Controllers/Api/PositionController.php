@@ -10,10 +10,27 @@ class PositionController extends Controller
     // Get all positions.
     public function index()
     {
-        return response()->json([
-            'success' => true,
-            'positions' => Position::all(['id', 'name']),
-        ]);
+        try {
+            $positions = Position::all(['id', 'name']);
+
+            if ($positions->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Positions not found',
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'positions' => $positions,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Positions not found',
+            ], 422);
+        }
     }
+
 }
 
