@@ -75,13 +75,14 @@ class UserController extends Controller
             ], 401);
         }
 
+        // User data validation.
         $validator = Validator::make($request->all(), [
-            'name'     => 'required|string|max:255',
-            'surname'  => 'required|string|max:255',
-            'email'    => 'required|email|unique:users',
-            'phone'    => 'required|string|unique:users',
-            'password' => 'required|string|min:6',
-            'photo'    => 'required|image|mimes:jpeg,png,jpg|max:5120',
+            'name'        => 'required|string|min:2|max:60',
+            'surname'     => 'required|string|max:255',
+            'email'       => 'required|email|rfc|max:255|unique:users,email',
+            'phone'       => 'required|string|regex:/^\+380[0-9]{9}$/|unique:users,phone',
+            'position_id' => 'required|exists:positions,id',
+            'photo'       => 'required|image|mimes:jpeg,jpg|max:5120|dimensions:min_width=70,min_height=70',
         ]);
 
         if ($validator->fails()) {
@@ -93,7 +94,9 @@ class UserController extends Controller
 
         // Image processing.
         try {
-            $image = Image::read($request->file('photo'))
+            $image = Image::read(
+                $request->file('photo')
+            )
                 ->cover(70, 70)
                 ->encode(new JpegEncoder(quality: 90));
             $filename = Str::uuid() . '.jpg';
@@ -124,13 +127,16 @@ class UserController extends Controller
 
         // Create user.
         $user = User::create([
-            'name'     => $request->name,
-            'surname'  => $request->surname,
-            'email'    => $request->email,
-            'phone'    => $request->phone,
-            'password' => Hash::make($request->password),
-            'photo'    => "photos/{$filename}",
+            'name'        => $request->name,
+            'surname'     => $request->surname,
+            'email'       => $request->email,
+            'phone'       => $request->phone,
+            'position_id' => $request->position_id,
+            'password'    => Hash::make($request->password),
+            'photo'       => "photos/{$filename}", // Збереження шляху до фото
         ]);
+
+        // Create token.
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
@@ -158,12 +164,12 @@ class UserController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'name'     => 'required|string|max:255',
-            'surname'  => 'required|string|max:255',
-            'email'    => 'required|email|unique:users,email,' . $id,
-            'phone'    => 'required|string|unique:users,phone,' . $id,
-            'password' => 'nullable|string|min:6',
-            'photo'    => 'nullable|image|mimes:jpeg,png,jpg|max:5120',
+            'name'        => 'required|string|min:2|max:60',
+            'surname'     => 'required|string|max:255',
+            'email'       => 'required|email|rfc|max:255|unique:users,email,' . $id,
+            'phone'       => 'required|string|regex:/^\+380[0-9]{9}$/|unique:users,phone,' . $id,
+            'position_id' => 'required|exists:positions,id',
+            'photo'       => 'nullable|image|mimes:jpeg,jpg|max:5120|dimensions:min_width=70,min_height=70',
         ]);
 
         if ($validator->fails()) {
@@ -196,7 +202,6 @@ class UserController extends Controller
                 Storage::disk('public')->put("photos/{$filename}", $optimized->body());
                 unlink($localPath);
 
-                // видаляємо старе фото, якщо воно існує
                 if ($user->photo && Storage::disk('public')->exists($user->photo)) {
                     Storage::disk('public')->delete($user->photo);
                 }
