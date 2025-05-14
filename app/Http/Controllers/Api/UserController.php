@@ -16,7 +16,7 @@ use Intervention\Image\Encoders\JpegEncoder;
 class UserController extends Controller
 {
     // Get of users.
-        public function index(Request $request)
+    public function index(Request $request)
     {
         $request->validate([
             'page' => 'integer|min:1',
@@ -42,6 +42,24 @@ class UserController extends Controller
         ];
 
         return response()->json($response);
+    }
+
+    // Get user details by ID.
+    public function show($id)
+    {
+        $user = User::find($id);
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User not found',
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'user' => $user,
+        ]);
     }
 
     // Create user.
