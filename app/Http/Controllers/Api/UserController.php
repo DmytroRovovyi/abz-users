@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\User;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -27,7 +28,22 @@ class UserController extends Controller
         $count = $request->input('count', 5);
         $page = $request->input('page', 1);
 
-        $users = User::orderBy('id')->paginate($count, ['*'], 'page', $page);
+        // Завантажуємо користувачів разом з позицією
+        $users = User::with('position')->orderBy('id')->paginate($count, ['*'], 'page', $page);
+
+        // Формуємо масив користувачів із потрібними полями
+        $usersArray = $users->map(function ($user) {
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'phone' => $user->phone,
+                'position' => $user->position?->name ?? null,
+                'position_id' => $user->position_id,
+                'registration_timestamp' => $user->registration_timestamp,
+                'photo' => $user->photo ? asset('storage/' . $user->photo) : null,
+            ];
+        });
 
         $response = [
             'success' => true,
@@ -39,7 +55,7 @@ class UserController extends Controller
                 'next_url' => $users->nextPageUrl(),
                 'prev_url' => $users->previousPageUrl(),
             ],
-            'users' => $users->items(),
+            'users' => $usersArray,
         ];
 
         return response()->json($response);
@@ -48,7 +64,7 @@ class UserController extends Controller
     // Get user details by ID.
     public function show($id)
     {
-        $user = User::find($id);
+        $user = User::with('position')->find($id);
 
         if (!$user) {
             return response()->json([
@@ -59,7 +75,16 @@ class UserController extends Controller
 
         return response()->json([
             'success' => true,
-            'user' => $user,
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'phone' => $user->phone,
+                'position' => $user->position?->name ?? null,
+                'position_id' => $user->position_id,
+                'registration_timestamp' => time(),
+                'photo' => $user->photo ? asset('storage/' . $user->photo) : null,
+            ],
         ]);
     }
 
@@ -75,14 +100,22 @@ class UserController extends Controller
             ], 401);
         }
 
+        // User data validation.
         $validator = Validator::make($request->all(), [
-            'name'     => 'required|string|max:255',
-            'surname'  => 'required|string|max:255',
-            'email'    => 'required|email|unique:users',
-            'phone'    => 'required|string|unique:users',
-            'password' => 'required|string|min:6',
-            'photo'    => 'required|image|mimes:jpeg,png,jpg|max:5120',
+            'name'        => 'required|string|min:2|max:60',
+            'email'       => 'required|email|max:255|unique:users,email',
+            'phone'       => 'required|string|regex:/^\+380[0-9]{9}$/|unique:users,phone',
+            'position_id' => 'required|exists:positions,id',
+            'photo'       => 'nullable|image|mimes:jpeg,jpg|max:5120|dimensions:min_width=70,min_height=70',
         ]);
+
+        if ($request->hasFile('photo')) {
+            $image = $request->file('photo');
+            $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
+            $path = $image->storeAs('photos', $filename, 'public');
+        } else {
+            $filename = null;
+        }
 
         if ($validator->fails()) {
             return response()->json([
@@ -92,8 +125,11 @@ class UserController extends Controller
         }
 
         // Image processing.
-        try {
-            $image = Image::read($request->file('photo'))
+        if ($request->hasFile('photo')) {
+            try {
+            $image = Image::read(
+                $request->file('photo')
+            )
                 ->cover(70, 70)
                 ->encode(new JpegEncoder(quality: 90));
             $filename = Str::uuid() . '.jpg';
@@ -102,12 +138,11 @@ class UserController extends Controller
                 mkdir(dirname($localPath), 0755, true);
             }
             $image->save($localPath);
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . env('TINIFY_API_KEY'),
-            ])
+            $response = Http::withBasicAuth('api', env('TINIFY_API_KEY'))
                 ->attach('file', fopen($localPath, 'r'), $filename)
                 ->post('https://api.tinify.com/shrink');
 
+            Log::info('Tinify response', ['body' => $response->body()]);
             if (!$response->ok() || !isset($response['output']['url'])) {
                 return response()->json(['error' => 'Image optimization failed'], 500);
             }
@@ -116,21 +151,25 @@ class UserController extends Controller
             Storage::disk('public')->put("photos/{$filename}", $optimized->body());
             unlink($localPath);
         } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Image processing failed',
-                'message' => $e->getMessage(),
-            ], 500);
+                return response()->json([
+                    'error' => 'Image processing failed',
+                    'message' => $e->getMessage(),
+                    ], 500);
+            }
         }
 
         // Create user.
         $user = User::create([
-            'name'     => $request->name,
-            'surname'  => $request->surname,
-            'email'    => $request->email,
-            'phone'    => $request->phone,
-            'password' => Hash::make($request->password),
-            'photo'    => "photos/{$filename}",
+            'name'        => $request->name,
+            'email'       => $request->email,
+            'phone'       => $request->phone,
+            'position_id' => $request->position_id,
+            'password'    => Hash::make($request->password),
+            'registration_timestamp' => time(),
+            'photo'       => "photos/{$filename}",
         ]);
+
+        // Create token.
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
@@ -158,12 +197,11 @@ class UserController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'name'     => 'required|string|max:255',
-            'surname'  => 'required|string|max:255',
-            'email'    => 'required|email|unique:users,email,' . $id,
-            'phone'    => 'required|string|unique:users,phone,' . $id,
-            'password' => 'nullable|string|min:6',
-            'photo'    => 'nullable|image|mimes:jpeg,png,jpg|max:5120',
+            'name'        => 'required|string|min:2|max:60',
+            'email'       => 'required|email|max:255|unique:users,email,' . $id,
+            'phone'       => 'required|string|regex:/^\+380[0-9]{9}$/|unique:users,phone,' . $id,
+            'position_id' => 'required|exists:positions,id',
+            'photo'       => 'nullable|image|mimes:jpeg,jpg|max:5120|dimensions:min_width=70,min_height=70',
         ]);
 
         if ($validator->fails()) {
@@ -196,7 +234,6 @@ class UserController extends Controller
                 Storage::disk('public')->put("photos/{$filename}", $optimized->body());
                 unlink($localPath);
 
-                // видаляємо старе фото, якщо воно існує
                 if ($user->photo && Storage::disk('public')->exists($user->photo)) {
                     Storage::disk('public')->delete($user->photo);
                 }
@@ -205,7 +242,6 @@ class UserController extends Controller
             }
 
             $user->name     = $request->name;
-            $user->surname  = $request->surname;
             $user->email    = $request->email;
             $user->phone    = $request->phone;
             if ($request->filled('password')) {

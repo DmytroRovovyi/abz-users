@@ -6,11 +6,14 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
+
+    public $timestamps = false;
 
     /**
      * The attributes that are mass assignable.
@@ -22,7 +25,9 @@ class User extends Authenticatable
         'surname',
         'email',
         'phone',
+        'position_id',
         'password',
+        'registration_timestamp',
         'photo',
     ];
 
@@ -47,5 +52,10 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function position()
+    {
+        return $this->belongsTo(Position::class);
     }
 }
