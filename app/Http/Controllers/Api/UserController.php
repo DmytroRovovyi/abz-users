@@ -28,7 +28,22 @@ class UserController extends Controller
         $count = $request->input('count', 5);
         $page = $request->input('page', 1);
 
-        $users = User::orderBy('id')->paginate($count, ['*'], 'page', $page);
+        // Завантажуємо користувачів разом з позицією
+        $users = User::with('position')->orderBy('id')->paginate($count, ['*'], 'page', $page);
+
+        // Формуємо масив користувачів із потрібними полями
+        $usersArray = $users->map(function ($user) {
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'phone' => $user->phone,
+                'position' => $user->position?->name ?? null,
+                'position_id' => $user->position_id,
+                'registration_timestamp' => $user->registration_timestamp,
+                'photo' => $user->photo ? asset('storage/' . $user->photo) : null,
+            ];
+        });
 
         $response = [
             'success' => true,
@@ -40,7 +55,7 @@ class UserController extends Controller
                 'next_url' => $users->nextPageUrl(),
                 'prev_url' => $users->previousPageUrl(),
             ],
-            'users' => $users->items(),
+            'users' => $usersArray,
         ];
 
         return response()->json($response);
@@ -65,8 +80,8 @@ class UserController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'phone' => $user->phone,
-                'position_id' => $user->position_id,
                 'position' => $user->position?->name ?? null,
+                'position_id' => $user->position_id,
                 'registration_timestamp' => time(),
                 'photo' => $user->photo ? asset('storage/' . $user->photo) : null,
             ],

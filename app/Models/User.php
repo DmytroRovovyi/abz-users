@@ -27,6 +27,7 @@ class User extends Authenticatable
         'phone',
         'position_id',
         'password',
+        'registration_timestamp',
         'photo',
     ];
 
