@@ -106,7 +106,6 @@ class UserController extends Controller
             'email'       => 'required|email|max:255|unique:users,email',
             'phone'       => 'required|string|regex:/^\+380[0-9]{9}$/|unique:users,phone',
             'position_id' => 'required|exists:positions,id',
-//            'photo'       => 'required|image|mimes:jpeg,jpg|max:5120|dimensions:min_width=70,min_height=70',
             'photo'       => 'nullable|image|mimes:jpeg,jpg|max:5120|dimensions:min_width=70,min_height=70',
         ]);
 
