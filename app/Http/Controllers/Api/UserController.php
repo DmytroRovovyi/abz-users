@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Http;
 use Intervention\Image\Laravel\Facades\Image;
 use Intervention\Image\Encoders\JpegEncoder;
 use Illuminate\Support\Facades\Cache;
+use function Tinify\setKey;
+use function Tinify\fromFile;
 
 class UserController extends Controller
 {
@@ -112,7 +114,6 @@ class UserController extends Controller
         if ($request->hasFile('photo')) {
             $image = $request->file('photo');
             $filename = Str::uuid() . '.' . $image->getClientOriginalExtension();
-            $path = $image->storeAs('photos', $filename, 'public');
         } else {
             $filename = null;
         }
@@ -127,36 +128,43 @@ class UserController extends Controller
         // Image processing.
         if ($request->hasFile('photo')) {
             try {
-            $image = Image::read(
-                $request->file('photo')
-            )
-                ->cover(70, 70)
-                ->encode(new JpegEncoder(quality: 90));
-            $filename = Str::uuid() . '.jpg';
-            $localPath = storage_path("app/tmp/{$filename}");
-            if (!file_exists(dirname($localPath))) {
-                mkdir(dirname($localPath), 0755, true);
-            }
-            $image->save($localPath);
-            $response = Http::withBasicAuth('api', env('TINIFY_API_KEY'))
-                ->attach('file', fopen($localPath, 'r'), $filename)
-                ->post('https://api.tinify.com/shrink');
+                $imageFile = $request->file('photo');
+                $filename = Str::uuid() . '.jpg';
+                $image = Image::read($imageFile)
+                    ->cover(70, 70)
+                    ->encode(new JpegEncoder(quality: 90));
+                $localPath = storage_path("app/tmp/{$filename}");
 
-            Log::info('Tinify response', ['body' => $response->body()]);
-            if (!$response->ok() || !isset($response['output']['url'])) {
-                return response()->json(['error' => 'Image optimization failed'], 500);
-            }
+                if (!file_exists(dirname($localPath))) {
+                    mkdir(dirname($localPath), 0755, true);
+                }
+                $image->save($localPath);
+                $mime = mime_content_type($localPath);
+                $size = filesize($localPath);
+                Log::info('Prepared image info', ['mime' => $mime, 'size' => $size]);
 
-            $optimized = Http::get($response['output']['url']);
-            Storage::disk('public')->put("photos/{$filename}", $optimized->body());
-            unlink($localPath);
-        } catch (\Exception $e) {
+                // --- TinyPNG SDK ---
+                setKey(env('TINIFY_API_KEY'));
+                $source = fromFile($localPath);
+                $optimizedPath = storage_path("app/tmp/optimized_{$filename}");
+                $source->toFile($optimizedPath);
+                Storage::disk('public')->put("photos/{$filename}", file_get_contents($optimizedPath));
+                unlink($localPath);
+                unlink($optimizedPath);
+
+            } catch (\Exception $e) {
+                Log::error('Image processing or optimization failed', [
+                    'message' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+
                 return response()->json([
                     'error' => 'Image processing failed',
                     'message' => $e->getMessage(),
-                    ], 500);
+                ], 500);
             }
         }
+
 
         // Create user.
         $user = User::create([
@@ -197,10 +205,10 @@ class UserController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'name'        => 'required|string|min:2|max:60',
-            'email'       => 'required|email|max:255|unique:users,email,' . $id,
-            'phone'       => 'required|string|regex:/^\+380[0-9]{9}$/|unique:users,phone,' . $id,
-            'position_id' => 'required|exists:positions,id',
+            'name'        => 'sometimes|required|string|min:2|max:60',
+            'email'       => 'sometimes|required|email|max:255|unique:users,email,' . $id,
+            'phone'       => 'sometimes|required|string|regex:/^\+380[0-9]{9}$/|unique:users,phone,' . $id,
+            'position_id' => 'sometimes|required|exists:positions,id',
             'photo'       => 'nullable|image|mimes:jpeg,jpg|max:5120|dimensions:min_width=70,min_height=70',
         ]);
 
@@ -213,27 +221,31 @@ class UserController extends Controller
 
         try {
             if ($request->hasFile('photo')) {
-                $image = Image::read($request->file('photo'))
+                $imageFile = $request->file('photo');
+                $filename = Str::uuid() . '.jpg';
+
+                $image = Image::read($imageFile)
                     ->cover(70, 70)
                     ->encode(new JpegEncoder(quality: 90));
-                $filename = Str::uuid() . '.jpg';
+
                 $localPath = storage_path("app/tmp/{$filename}");
                 if (!file_exists(dirname($localPath))) {
                     mkdir(dirname($localPath), 0755, true);
                 }
+
                 $image->save($localPath);
-                $response = Http::withBasicAuth('api', env('TINIFY_API_KEY'))
-                    ->attach('file', fopen($localPath, 'r'), $filename)
-                    ->post('https://api.tinify.com/shrink');
 
-                if (!$response->ok() || !isset($response['output']['url'])) {
-                    return response()->json(['error' => 'Image optimization failed'], 500);
-                }
+                // Оптимізація через TinyPNG
+                setKey(env('TINIFY_API_KEY'));
+                $source = fromFile($localPath);
+                $optimizedPath = storage_path("app/tmp/optimized_{$filename}");
+                $source->toFile($optimizedPath);
 
-                $optimized = Http::get($response['output']['url']);
-                Storage::disk('public')->put("photos/{$filename}", $optimized->body());
+                Storage::disk('public')->put("photos/{$filename}", file_get_contents($optimizedPath));
                 unlink($localPath);
+                unlink($optimizedPath);
 
+                // Видалення старого фото
                 if ($user->photo && Storage::disk('public')->exists($user->photo)) {
                     Storage::disk('public')->delete($user->photo);
                 }
@@ -241,12 +253,18 @@ class UserController extends Controller
                 $user->photo = "photos/{$filename}";
             }
 
-            $user->name     = $request->name;
-            $user->email    = $request->email;
-            $user->phone    = $request->phone;
-            if ($request->filled('password')) {
-                $user->password = Hash::make($request->password);
+            foreach (['name', 'email', 'phone', 'position_id', 'password'] as $field) {
+                if ($request->filled($field)) {
+                    switch ($field) {
+                        case 'password':
+                            $user->password = Hash::make($request->input($field));
+                            break;
+                        default:
+                            $user->$field = $request->input($field);
+                    }
+                }
             }
+
             $user->save();
 
             return response()->json([
@@ -255,7 +273,7 @@ class UserController extends Controller
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'User update failed',
+                'error'   => 'User update failed',
                 'message' => $e->getMessage(),
             ], 500);
         }
