@@ -13,22 +13,26 @@ class UserSeeder extends Seeder
 {
     public function run(): void
     {
-        $defaultPhotoPath = storage_path('app/tmp/default.jpg');
+        $photoSourcePath = storage_path('app/tmp');
+        $photoFiles = collect(File::files($photoSourcePath))
+            ->filter(fn($file) => in_array($file->getExtension(), ['jpg', 'jpeg']))
+            ->values();
 
-        if (!File::exists($defaultPhotoPath)) {
-            File::copy(
-                storage_path('app/tmp/e528c784-439c-4034-81dc-745ec5a2f44e.jpg'),
-                $defaultPhotoPath
-            );
+        if ($photoFiles->isEmpty()) {
+            $this->command->error('No image files found in storage/app/tmp');
+            return;
         }
 
-        for ($i = 1; $i <= 45; $i++) {
+        for ($i = 0; $i < 45; $i++) {
+            // Обираємо фото по черзі, або повторюємо з початку
+            $photoFile = $photoFiles[$i % $photoFiles->count()];
+
             $photoName = Str::uuid() . '.jpg';
             $photoStoragePath = 'photos/' . $photoName;
 
             Storage::disk('public')->put(
                 $photoStoragePath,
-                File::get($defaultPhotoPath)
+                File::get($photoFile)
             );
 
             User::create([
@@ -40,5 +44,7 @@ class UserSeeder extends Seeder
                 'photo'       => $photoStoragePath,
             ]);
         }
+
+        $this->command->info('45 users with photos have been seeded.');
     }
 }
