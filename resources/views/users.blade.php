@@ -1,107 +1,92 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="uk">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Users</title>
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <style>
-        body { font-family: Arial, sans-serif; padding: 20px; }
-        form { margin-bottom: 30px; }
-        input { display: block; margin: 5px 0; }
-        img { margin-top: 5px; }
-        .user { margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 10px; }
-    </style>
 </head>
 <body>
-<h1>Users</h1>
+<h1>Select list user</h1>
 
-<form id="user-form" enctype="multipart/form-data">
-    <input name="name" placeholder="Name" required>
-    <input name="surname" placeholder="Surname" required>
-    <input name="email" placeholder="Email" required>
-    <input name="phone" placeholder="Phone" required>
-    <input name="password" type="password" placeholder="Password" required>
-    <input name="photo" type="file" accept="image/*" required>
-    <button type="submit">Save</button>
-    <button type="button" onclick="cancelEdit()">Cancel</button>
+<div id="users-list" style="display: flex; flex-wrap: wrap; gap: 10px;">
+    @foreach($users as $user)
+        @include('partials.user_card', ['user' => $user])
+    @endforeach
+</div>
+
+<button id="load-more" style="margin-top: 20px;">Show more</button>
+
+<hr>
+
+<h2>New User</h2>
+<form action="/users" method="POST" enctype="multipart/form-data">
+    @csrf
+
+    <label>
+        Name
+        <input type="text" name="name" required>
+    </label><br><br>
+
+    <label>
+        Email:
+        <input type="email" name="email" required>
+    </label><br><br>
+
+    <label>
+        Phone (+380XXXXXXXXX):
+        <input type="text" name="phone" required>
+    </label><br><br>
+
+    <label>
+        Position
+        <select name="position_id" required>
+            @foreach($positions as $position)
+                <option value="{{ $position['id'] }}">{{ $position['name'] }}</option>
+            @endforeach
+        </select>
+    </label><br><br>
+
+    <label>
+        Photo:
+        <input type="file" name="photo" accept="image/jpeg,image/jpg" required>
+    </label><br><br>
+
+    <button type="submit">add user</button>
 </form>
 
-<div id="users"></div>
-
 <script>
-    let page = 1;
-    let editingUserId = null;
+    let currentPage = 1;
 
-    function loadUsers() {
-        fetch(`/api/users?page=${page}`)
-            .then(res => res.json())
-            .then(data => {
-                const usersDiv = document.getElementById('users');
-                data.data.forEach(user => {
-                    usersDiv.innerHTML += `
-                            <div class="user">
-                                <strong>${user.name} ${user.surname}</strong><br>
-                                <img src="/storage/${user.photo}" width="70"><br>
-                                <button onclick='editUser(${JSON.stringify(user)})'>Edit</button>
-                            </div>`;
-                });
+    document.getElementById('load-more').addEventListener('click', function () {
+        currentPage++;
 
-                if (data.next_page_url) {
-                    const btn = document.createElement('button');
-                    btn.textContent = 'Show more';
-                    btn.onclick = () => {
-                        page++;
-                        btn.remove();
-                        loadUsers();
-                    };
-                    usersDiv.appendChild(btn);
-                }
-            });
-    }
-
-    function editUser(user) {
-        document.querySelector('[name=name]').value = user.name;
-        document.querySelector('[name=surname]').value = user.surname;
-        document.querySelector('[name=email]').value = user.email;
-        document.querySelector('[name=phone]').value = user.phone;
-        document.querySelector('[name=password]').value = '';
-        editingUserId = user.id;
-    }
-
-    function cancelEdit() {
-        document.getElementById('user-form').reset();
-        editingUserId = null;
-    }
-
-    document.getElementById('user-form').addEventListener('submit', function(e) {
-        e.preventDefault();
-
-        const formData = new FormData(this);
-        if (editingUserId) {
-            formData.append('_method', 'PUT');
-        }
-
-        fetch(`/api/users${editingUserId ? '/' + editingUserId : ''}`, {
-            method: 'POST',
+        fetch(`/?page=${currentPage}`, {
             headers: {
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-            },
-            body: formData
+                'X-Requested-With': 'XMLHttpRequest'
+            }
         })
-            .then(async res => {
-                const data = await res.json();
-                if (res.ok) {
-                    alert(editingUserId ? 'User updated' : 'User created');
-                    editingUserId = null;
-                    this.reset();
-                    location.reload();
-                } else {
-                    alert('Error:\n' + JSON.stringify(data.errors, null, 2));
+            .then(response => response.json())
+            .then(users => {
+                if (!users.length) {
+                    document.getElementById('load-more').style.display = 'none';
+                    return;
                 }
+
+                const container = document.getElementById('users-list');
+
+                users.forEach(user => {
+                    const html = `
+                        <div style="border: 1px solid #ccc; padding: 10px;">
+                            <img src="${user.photo}" width="70" height="70" alt="${user.name}">
+                            <p>Name: ${user.name}</p>
+                            <p>Email: ${user.email}</p>
+                            <p>Phone: ${user.phone}</p>
+                            <p>Position: ${user.position}</p>
+                        </div>`;
+                    container.insertAdjacentHTML('beforeend', html);
+                });
             });
     });
-
-    loadUsers();
 </script>
 </body>
 </html>
